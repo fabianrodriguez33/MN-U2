@@ -5,17 +5,18 @@ Aplicación Streamlit que resuelve sistemas de ecuaciones lineales $A\mathbf{x} 
 ## Módulos
 
 - **Sesión 6 — Factorización LU (Doolittle):** descompone $A = LU$, resuelve por sustitución hacia adelante y hacia atrás, y permite reevaluar nuevos vectores $\mathbf{b}$ sin recalcular $L$ y $U$. Valida pivotes nulos ($|u_{ii}| < 10^{-12}$).
+- **Sesión 8 — Interpolación de Lagrange:** ingreso dinámico de puntos $(x_i, y_i)$, tabla de $L_k(x_{eval})$ y términos ponderados, polinomio $P_n(x)$ simbólico en LaTeX (sympy), valor interpolado y gráfico. Lanza `DuplicateXError` si hay $x_i$ repetidos.
 - **Sesión 7 — Métodos Iterativos (Jacobi y Gauss-Seidel):** verifica dominancia diagonal estricta y el criterio de Sassenfeld, ejecuta ambos métodos con tabla de iteraciones, gráfico de convergencia del error y cálculo del residuo.
 
 ## Estructura
 
 ```text
 MN-U2/
-├── app.py                     # Interfaz Streamlit (navegación Sesión 6 / Sesión 7)
+├── app.py                     # Interfaz Streamlit (navegación Sesión 6 / 7 / 8)
 ├── lu_solver.py                # Factorización LU (Doolittle)
 ├── iterative_solvers.py        # Jacobi, Gauss-Seidel, EDD, Sassenfeld
-├── instrucciones.md            # Especificación Sesión 6
-├── instrucciones_sesion6.md    # Especificación Sesión 7
+├── lagrange_solver.py          # Interpolación de Lagrange (Sesión 8)
+├── instruccioness8.md          # Especificación Sesión 8
 ├── requirements.txt
 └── .claude/launch.json         # Configuración del servidor de desarrollo
 ```
@@ -38,3 +39,4 @@ La aplicación se abre en `http://localhost:8501`.
 
 - **Sesión 6:** matriz $A$ de $3\times3$ con $\mathbf{b}_1 = [14, 46, 26]^T$ y $\mathbf{b}_2 = [20, 62, 30]^T$ (botón "Cargar Ejemplo Predeterminado").
 - **Sesión 7:** clúster de 4 servidores, $\mathbf{x}^{(0)} = \mathbf{0}$, $\epsilon = 10^{-4}$ (botón "Cargar Ejemplo Predeterminado - Clúster de 4 Servidores").
+- **Sesión 8:** RAM $x = 2, 4, 8, 12$ GB, latencia $y = 150, 85, 50, 70$ ms, $x_{eval}=6$ → $P_3(6) = 55.25$ ms.

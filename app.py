@@ -1,10 +1,11 @@
-"""Aplicación Streamlit: Sesión 6 (LU Doolittle) y Sesión 7 (Jacobi / Gauss-Seidel)
-para balanceo de carga en clústeres Cloud."""
+"""Aplicación Streamlit: Sesión 6 (LU Doolittle), Sesión 7 (Jacobi / Gauss-Seidel)
+y Sesión 8 (Interpolación de Lagrange) para Cloud."""
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
+import sympy as sp
 
 from iterative_solvers import (
     check_diagonal_dominance,
@@ -12,6 +13,7 @@ from iterative_solvers import (
     gauss_seidel_solver,
     jacobi_solver,
 )
+from lagrange_solver import DuplicateXError, LagrangeSolver
 from lu_solver import LUSolver, SingularMatrixError
 
 st.set_page_config(page_title="Métodos Numéricos - MN-U2", layout="wide")
@@ -33,6 +35,11 @@ DEFAULT_A7 = np.array([
     [0, -1, -2, 9],
 ], dtype=float)
 DEFAULT_B7 = np.array([15, 18, 25, 20], dtype=float)
+
+# --- Caso de prueba predeterminado (Sesión 8) ---
+DEFAULT_X8 = [2.0, 4.0, 8.0, 12.0]
+DEFAULT_Y8 = [150.0, 85.0, 50.0, 70.0]
+DEFAULT_XEVAL8 = 6.0
 
 
 def matrix_to_latex(M, name):
@@ -394,17 +401,155 @@ def render_sesion7():
 
 
 # ============================================================
+# SESIÓN 8 — Interpolación Polinómica de Lagrange
+# ============================================================
+
+def init_state_s8(npts):
+    old = st.session_state.get("pts_df")
+    df = pd.DataFrame({"x": np.zeros(npts), "y": np.zeros(npts)})
+    if old is not None:
+        m = min(npts, len(old))
+        df.iloc[:m] = old.iloc[:m].to_numpy()
+    st.session_state.pts_df = df
+    st.session_state.n8 = npts
+
+
+def load_preset_s8():
+    st.session_state.pts_df = pd.DataFrame({"x": DEFAULT_X8, "y": DEFAULT_Y8})
+    st.session_state.n8 = len(DEFAULT_X8)
+    st.session_state.x_eval8 = DEFAULT_XEVAL8
+    # Fuerza a los widgets a refrescarse con los nuevos valores
+    st.session_state.pts_version = st.session_state.get("pts_version", 0) + 1
+    st.session_state.n_input_s8 = len(DEFAULT_X8)
+    st.session_state.x_eval_input = DEFAULT_XEVAL8
+
+
+def render_sesion8():
+    st.title("📈 Optimización de Latencia en Microservicios — Interpolación de Lagrange")
+    st.markdown(
+        "Dado un conjunto de puntos $(x_i, y_i)$, se construye el **polinomio interpolante de "
+        "Lagrange** $P_n(x) = \\sum_{k=0}^{n} y_k L_k(x)$ con "
+        "$L_k(x) = \\prod_{j \\ne k} \\frac{x - x_j}{x_k - x_j}$, para estimar la latencia media "
+        "de un contenedor en función de la memoria RAM asignada."
+    )
+
+    if "n8" not in st.session_state:
+        st.session_state.n8 = 4
+        st.session_state.pts_df = pd.DataFrame({"x": DEFAULT_X8, "y": DEFAULT_Y8})
+        st.session_state.x_eval8 = DEFAULT_XEVAL8
+
+    with st.sidebar:
+        st.header("⚙️ Configuración (Sesión 8)")
+        if st.button("📌 Cargar Caso Predeterminado (Sesión 8 - Microservicios)", use_container_width=True):
+            load_preset_s8()
+
+        npts = st.number_input(
+            "Número de puntos (n+1)", min_value=2, max_value=15,
+            value=st.session_state.n8, step=1, key="n_input_s8",
+        )
+        if npts != st.session_state.n8:
+            init_state_s8(int(npts))
+
+        x_eval = st.number_input(
+            "Valor a evaluar x_eval", value=float(st.session_state.x_eval8),
+            format="%.4f", key="x_eval_input",
+        )
+        st.session_state.x_eval8 = x_eval
+
+    st.subheader("1️⃣ Puntos experimentales (xᵢ, yᵢ)")
+    edited = st.data_editor(
+        st.session_state.pts_df,
+        key=f"pts_editor_{st.session_state.get('pts_version', 0)}",
+        num_rows="fixed", use_container_width=True,
+        column_config={
+            "x": st.column_config.NumberColumn("Memoria xᵢ (GB)", format="%.4f"),
+            "y": st.column_config.NumberColumn("Latencia yᵢ (ms)", format="%.4f"),
+        },
+    )
+    st.session_state.pts_df = edited
+
+    if edited.isna().any().any():
+        st.error("La tabla contiene celdas vacías: complete todas las coordenadas.")
+        return
+
+    xs = edited["x"].to_numpy(dtype=float)
+    ys = edited["y"].to_numpy(dtype=float)
+
+    try:
+        basis = LagrangeSolver.compute_basis(xs, x_eval)
+        p_eval = LagrangeSolver.evaluate(xs, ys, x_eval)
+        poly_latex = LagrangeSolver.polynomial_latex(xs, ys)
+        poly_expr, sym_x = LagrangeSolver.get_polynomial_expression(xs, ys)
+    except DuplicateXError as e:
+        st.error(str(e))
+        return
+
+    st.subheader("2️⃣ Polinomios base $L_k(x_{eval})$ y términos ponderados")
+    terms = ys * basis
+    table = pd.DataFrame({
+        "k": range(len(xs)),
+        "x_k": xs,
+        "y_k": ys,
+        f"L_k({x_eval:g})": basis,
+        f"y_k · L_k({x_eval:g})": terms,
+    })
+    total = pd.DataFrame({
+        "k": ["Suma"], "x_k": [None], "y_k": [None],
+        f"L_k({x_eval:g})": [basis.sum()],
+        f"y_k · L_k({x_eval:g})": [terms.sum()],
+    })
+    st.dataframe(
+        pd.concat([table, total], ignore_index=True).astype({"k": str}).style.format(
+            {c: "{:.6f}" for c in table.columns if c != "k"}, na_rep="--"
+        ),
+        use_container_width=True, hide_index=True,
+    )
+
+    st.subheader("3️⃣ Polinomio interpolante simplificado")
+    st.latex(poly_latex)
+
+    st.subheader("4️⃣ Valor interpolado")
+    st.metric(f"P_{len(xs) - 1}({x_eval:g})", f"{p_eval:.6f} ms")
+    if x_eval < xs.min() or x_eval > xs.max():
+        st.warning("x_eval está fuera del intervalo de los datos: se trata de extrapolación.")
+
+    st.subheader("5️⃣ Gráfico de la interpolación")
+    grid = np.linspace(xs.min() - 1, xs.max() + 1, 200)
+    curve = sp.lambdify(sym_x, poly_expr, "numpy")(grid) * np.ones_like(grid)
+
+    fig, ax = plt.subplots()
+    ax.plot(grid, curve, label=f"$P_{{{len(xs) - 1}}}(x)$")
+    ax.scatter(xs, ys, color="red", zorder=3, s=60, label="Puntos experimentales")
+    ax.plot([x_eval, x_eval], [min(curve.min(), 0), p_eval], "k--", linewidth=1)
+    ax.plot([grid[0], x_eval], [p_eval, p_eval], "k--", linewidth=1)
+    ax.scatter([x_eval], [p_eval], color="green", marker="*", s=200, zorder=4,
+               label=f"Interpolado ({x_eval:g}, {p_eval:.4f})")
+    ax.set_xlabel("Memoria RAM x (GB)")
+    ax.set_ylabel("Latencia y (ms)")
+    ax.set_title("Interpolación polinómica de Lagrange")
+    ax.legend()
+    ax.grid(True, linestyle="--", alpha=0.5)
+    st.pyplot(fig)
+
+
+# ============================================================
 # NAVEGACIÓN PRINCIPAL
 # ============================================================
 
 st.sidebar.title("📚 Navegación")
 modulo = st.sidebar.radio(
     "Selecciona el módulo",
-    ["Sesión 6: Factorización LU (Doolittle)", "Sesión 7: Métodos Iterativos (Jacobi / Gauss-Seidel)"],
+    [
+        "Sesión 6: Factorización LU (Doolittle)",
+        "Sesión 7: Métodos Iterativos (Jacobi y Gauss-Seidel)",
+        "Sesión 8: Interpolación Polinómica de Lagrange",
+    ],
 )
 st.sidebar.divider()
 
 if modulo.startswith("Sesión 6"):
     render_sesion6()
-else:
+elif modulo.startswith("Sesión 7"):
     render_sesion7()
+else:
+    render_sesion8()
