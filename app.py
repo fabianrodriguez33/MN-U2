@@ -1,5 +1,5 @@
 """Aplicación Streamlit: Sesión 6 (LU Doolittle), Sesión 7 (Jacobi / Gauss-Seidel)
-y Sesión 8 (Interpolación de Lagrange) para Cloud."""
+Sesión 8 (Interpolación de Lagrange) y Sesión 9 (Interpolación de Newton) para Cloud."""
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,6 +15,7 @@ from iterative_solvers import (
 )
 from lagrange_solver import DuplicateXError, LagrangeSolver
 from lu_solver import LUSolver, SingularMatrixError
+from newton_solver import NewtonSolver
 
 st.set_page_config(page_title="Métodos Numéricos - MN-U2", layout="wide")
 
@@ -40,6 +41,11 @@ DEFAULT_B7 = np.array([15, 18, 25, 20], dtype=float)
 DEFAULT_X8 = [2.0, 4.0, 8.0, 12.0]
 DEFAULT_Y8 = [150.0, 85.0, 50.0, 70.0]
 DEFAULT_XEVAL8 = 6.0
+
+# --- Caso de prueba predeterminado (Sesión 9) ---
+DEFAULT_X9 = [1.0, 2.0, 4.0, 7.0]
+DEFAULT_Y9 = [45.0, 65.0, 110.0, 220.0]
+DEFAULT_XEVAL9 = 5.0
 
 
 def matrix_to_latex(M, name):
@@ -533,6 +539,143 @@ def render_sesion8():
 
 
 # ============================================================
+# SESIÓN 9 — Interpolación Polinómica de Newton (Diferencias Divididas)
+# ============================================================
+
+def init_state_s9(npts):
+    old = st.session_state.get("pts_df9")
+    df = pd.DataFrame({"x": np.zeros(npts), "y": np.zeros(npts)})
+    if old is not None:
+        m = min(npts, len(old))
+        df.iloc[:m] = old.iloc[:m].to_numpy()
+    st.session_state.pts_df9 = df
+    st.session_state.n9 = npts
+
+
+def load_preset_s9():
+    st.session_state.pts_df9 = pd.DataFrame({"x": DEFAULT_X9, "y": DEFAULT_Y9})
+    st.session_state.n9 = len(DEFAULT_X9)
+    st.session_state.x_eval9 = DEFAULT_XEVAL9
+    st.session_state.pts_version9 = st.session_state.get("pts_version9", 0) + 1
+    st.session_state.n_input_s9 = len(DEFAULT_X9)
+    st.session_state.x_eval_input9 = DEFAULT_XEVAL9
+
+
+def render_sesion9():
+    st.title("⏱️ Latencia de una API REST — Interpolación de Newton")
+    st.markdown(
+        "Dado un conjunto de puntos $(x_i, y_i)$, se construye la **tabla de diferencias "
+        "divididas** $f[x_i,\\dots,x_{i+k}] = \\frac{f[x_{i+1},\\dots,x_{i+k}] - "
+        "f[x_i,\\dots,x_{i+k-1}]}{x_{i+k}-x_i}$ y el polinomio de Newton "
+        "$P_n(x) = \\sum_{k=0}^{n} f[x_0,\\dots,x_k]\\prod_{j<k}(x-x_j)$, para estimar la "
+        "latencia media según la carga concurrente (en unidades de 100 req/s)."
+    )
+
+    if "n9" not in st.session_state:
+        st.session_state.n9 = 4
+        st.session_state.pts_df9 = pd.DataFrame({"x": DEFAULT_X9, "y": DEFAULT_Y9})
+        st.session_state.x_eval9 = DEFAULT_XEVAL9
+
+    with st.sidebar:
+        st.header("⚙️ Configuración (Sesión 9)")
+        if st.button("📌 Cargar Ejemplo Predeterminado (Sesión 9 - SRE REST API)", use_container_width=True):
+            load_preset_s9()
+
+        npts = st.number_input(
+            "Número de puntos (n+1)", min_value=2, max_value=15,
+            value=st.session_state.n9, step=1, key="n_input_s9",
+        )
+        if npts != st.session_state.n9:
+            init_state_s9(int(npts))
+
+        x_eval = st.number_input(
+            "Valor a evaluar x_eval", value=float(st.session_state.x_eval9),
+            format="%.4f", key="x_eval_input9",
+        )
+        st.session_state.x_eval9 = x_eval
+
+    st.subheader("1️⃣ Puntos experimentales (xᵢ, yᵢ)")
+    edited = st.data_editor(
+        st.session_state.pts_df9,
+        key=f"pts_editor9_{st.session_state.get('pts_version9', 0)}",
+        num_rows="fixed", use_container_width=True,
+        column_config={
+            "x": st.column_config.NumberColumn("Carga xᵢ (100 req/s)", format="%.4f"),
+            "y": st.column_config.NumberColumn("Latencia yᵢ (ms)", format="%.4f"),
+        },
+    )
+    st.session_state.pts_df9 = edited
+
+    if edited.isna().any().any():
+        st.error("La tabla contiene celdas vacías: complete todas las coordenadas.")
+        return
+
+    xs = edited["x"].to_numpy(dtype=float)
+    ys = edited["y"].to_numpy(dtype=float)
+
+    try:
+        table = NewtonSolver.compute_divided_differences(xs, ys)
+    except DuplicateXError as e:
+        st.error(str(e))
+        return
+
+    coefs = NewtonSolver.coefficients(table)
+    p_eval = NewtonSolver.evaluate(x_eval, xs, coefs)
+    newton_expr, poly_expr, sym_x = NewtonSolver.get_symbolic_expressions(xs, coefs)
+    n = len(xs)
+
+    st.subheader("2️⃣ Tabla de diferencias divididas")
+    order_names = ["f[xᵢ]"] + [f"Dif. {k}ª orden" for k in range(1, n)]
+    dd = pd.DataFrame(table, columns=order_names)
+    dd.insert(0, "xᵢ", xs)
+    dd.insert(0, "i", [str(i) for i in range(n)])
+    dd_text = dd.apply(lambda col: col if col.name == "i" else col.map(
+        lambda v: "--" if pd.isna(v) else f"{v:.4f}"))
+    st.dataframe(dd_text, use_container_width=True, hide_index=True)
+    st.caption("Coeficientes de Newton (primera fila): " + ", ".join(
+        f"a{k} = {c:.6f}" for k, c in enumerate(coefs)))
+
+    st.subheader("3️⃣ Polinomio interpolante")
+    st.markdown("**Forma de Newton**")
+    st.latex(NewtonSolver.newton_latex(xs, coefs))
+    st.markdown("**Forma simplificada (canónica)**")
+    st.latex(NewtonSolver.canonical_latex(poly_expr, sym_x))
+
+    st.subheader("4️⃣ Valor interpolado")
+    st.metric(f"P_{n - 1}({x_eval:g})", f"{p_eval:.6f} ms")
+    if x_eval < xs.min() or x_eval > xs.max():
+        st.warning("x_eval está fuera del intervalo de los datos: se trata de extrapolación.")
+
+    st.subheader("5️⃣ Verificación en los puntos experimentales")
+    p_nodes = NewtonSolver.evaluate(xs, xs, coefs)
+    st.dataframe(
+        pd.DataFrame({
+            "x_i": xs, "y_i medida (ms)": ys,
+            "P(x_i) evaluado (ms)": p_nodes, "Error |y_i - P(x_i)|": np.abs(ys - p_nodes),
+        }).style.format("{:.4f}"),
+        use_container_width=True, hide_index=True,
+    )
+
+    st.subheader("6️⃣ Gráfico de la interpolación")
+    grid = np.linspace(xs.min() - 1, xs.max() + 1, 200)
+    curve = NewtonSolver.evaluate(grid, xs, coefs)
+
+    fig, ax = plt.subplots()
+    ax.plot(grid, curve, label=f"$P_{{{n - 1}}}(x)$")
+    ax.scatter(xs, ys, color="red", zorder=3, s=60, label="Puntos experimentales")
+    ax.plot([x_eval, x_eval], [min(curve.min(), 0), p_eval], "k--", linewidth=1)
+    ax.plot([grid[0], x_eval], [p_eval, p_eval], "k--", linewidth=1)
+    ax.scatter([x_eval], [p_eval], color="green", marker="*", s=200, zorder=4,
+               label=f"Interpolado ({x_eval:g}, {p_eval:.4f})")
+    ax.set_xlabel("Carga concurrente x (100 req/s)")
+    ax.set_ylabel("Latencia y (ms)")
+    ax.set_title("Interpolación polinómica de Newton")
+    ax.legend()
+    ax.grid(True, linestyle="--", alpha=0.5)
+    st.pyplot(fig)
+
+
+# ============================================================
 # NAVEGACIÓN PRINCIPAL
 # ============================================================
 
@@ -543,6 +686,7 @@ modulo = st.sidebar.radio(
         "Sesión 6: Factorización LU (Doolittle)",
         "Sesión 7: Métodos Iterativos (Jacobi y Gauss-Seidel)",
         "Sesión 8: Interpolación Polinómica de Lagrange",
+        "Sesión 9: Interpolación Polinómica de Newton",
     ],
 )
 st.sidebar.divider()
@@ -551,5 +695,7 @@ if modulo.startswith("Sesión 6"):
     render_sesion6()
 elif modulo.startswith("Sesión 7"):
     render_sesion7()
-else:
+elif modulo.startswith("Sesión 8"):
     render_sesion8()
+else:
+    render_sesion9()
