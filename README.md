@@ -1,6 +1,6 @@
 # MN-U2 — Métodos Numéricos aplicados a Cloud / SRE
 
-Aplicación web en **Streamlit** con cuatro módulos de Métodos Numéricos: resolución de sistemas lineales $A\mathbf{x} = \mathbf{b}$ (métodos directos e iterativos) e interpolación polinómica (Lagrange y Newton). Cada módulo se aplica a un escenario de infraestructura Cloud. La navegación entre sesiones se hace desde la barra lateral.
+Aplicación web en **Streamlit** con cinco módulos de Métodos Numéricos: resolución de sistemas lineales $A\mathbf{x} = \mathbf{b}$ (métodos directos e iterativos) e interpolación polinómica (Lagrange, Newton y Newton-Gregory). Cada módulo se aplica a un escenario de infraestructura Cloud. La navegación entre sesiones se hace desde la barra lateral.
 
 ## Módulos
 
@@ -10,20 +10,24 @@ Aplicación web en **Streamlit** con cuatro módulos de Métodos Numéricos: res
 | 7 | Métodos iterativos (Jacobi y Gauss-Seidel) | `iterative_solvers.py` | Verifica dominancia diagonal estricta y criterio de Sassenfeld; muestra la tabla de iteraciones, el gráfico de convergencia del error y el residuo. |
 | 8 | Interpolación de Lagrange | `lagrange_solver.py` | Ingreso dinámico de puntos $(x_i, y_i)$, tabla de $L_k(x_{eval})$, polinomio $P_n(x)$ simbólico (sympy), valor interpolado y gráfico. |
 | 9 | Interpolación de Newton (diferencias divididas) | `newton_solver.py` | Tabla triangular de diferencias divididas, polinomio en forma de Newton y en forma canónica (LaTeX), evaluación con esquema de Horner, verificación en los nodos y gráfico. |
+| 10 | Interpolación de Newton-Gregory | `gregory_solver.py` | Para nodos igualmente espaciados: tabla de diferencias finitas con los coeficientes usados resaltados, variante progresiva ($\Delta^k y_0$) y regresiva ($\nabla^k y_n$), polinomio en forma de Newton-Gregory y canónica (LaTeX), valor interpolado, verificación en los nodos y gráfico. |
 
-Las sesiones 8 y 9 lanzan `DuplicateXError` si existen valores $x_i$ repetidos.
+Las sesiones 8, 9 y 10 lanzan `DuplicateXError` si existen valores $x_i$ repetidos. La sesión 10 lanza `UnequalSpacingError` si los nodos no son equidistantes (en ese caso se usa la sesión 9).
 
 ## Estructura
 
 ```text
 MN-U2/
-├── app.py                  # Interfaz Streamlit (navegación Sesiones 6 / 7 / 8 / 9)
+├── app.py                  # Interfaz Streamlit (navegación Sesiones 6 / 7 / 8 / 9 / 10)
 ├── lu_solver.py            # Sesión 6: Factorización LU (Doolittle)
 ├── iterative_solvers.py    # Sesión 7: Jacobi, Gauss-Seidel, EDD, Sassenfeld
 ├── lagrange_solver.py      # Sesión 8: Interpolación de Lagrange
 ├── newton_solver.py        # Sesión 9: Diferencias divididas de Newton
+├── gregory_solver.py       # Sesión 10: Newton-Gregory (diferencias finitas)
+├── test_simulacro_s11.py   # Pruebas del Simulacro de Examen 2 (6 ejercicios)
 ├── instruccioness8.md      # Especificación Sesión 8
 ├── inss9.md                # Especificación Sesión 9
+├── ins11.md                # Especificación del simulacro S11
 ├── requirements.txt
 ├── .gitignore
 └── .claude/launch.json     # Configuración del servidor de desarrollo (puerto 8501)
@@ -54,3 +58,12 @@ Cada sesión incluye un botón en la barra lateral para cargar su ejemplo.
 - **Sesión 8:** RAM $x = 2, 4, 8, 12$ GB, latencia $y = 150, 85, 50, 70$ ms, $x_{eval}=6$ → $P_3(6) = 55.25$ ms.
 - **Sesión 9:** carga de una API REST $x = 1, 2, 4, 7$ (×100 req/s), latencia $y = 45, 65, 110, 220$ ms, $x_{eval}=5$ → $P_3(5) = 139$ ms, con
   $P_3(x) = 45 + 20(x-1) + \tfrac{5}{6}(x-1)(x-2) + \tfrac{1}{3}(x-1)(x-2)(x-4)$.
+- **Sesión 10:** asentamiento de una zapata, $t = 0, 2, 4, 6$ (h = 2), $y = 0, 1.6, 3.5, 6.3$ mm, $x_{eval}=5$ → $P_3(5) = 4.75$ mm, con $P_3(x) = 0.0125x^3 - 0.0375x^2 + 0.825x$ (progresivo y regresivo coinciden).
+
+## Pruebas
+
+```bash
+py test_simulacro_s11.py
+```
+
+Valida contra los resultados esperados los 6 ejercicios del Simulacro de Examen 2 (Jacobi, Gauss-Seidel/Sassenfeld, Lagrange, Newton DD, Newton-Gregory y cota del error). Imprime `PASSED` o `FAILED` por ejercicio.
