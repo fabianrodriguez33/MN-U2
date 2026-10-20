@@ -782,7 +782,16 @@ def render_sesion10():
     dd.insert(0, "i", [str(i) for i in range(n)])
     dd_text = dd.apply(lambda col: col if col.name == "i" else col.map(
         lambda v: "--" if pd.isna(v) else f"{v:.4f}"))
-    st.dataframe(dd_text, use_container_width=True, hide_index=True)
+    # Resalta los coeficientes usados: fila 0 (progresivo) o última diagonal (regresivo)
+    used = {(0, k) for k in range(n)} if mode == "forward" else {(n - 1 - k, k) for k in range(n)}
+
+    def _highlight(frame):
+        css = pd.DataFrame("", index=frame.index, columns=frame.columns)
+        for i, k in used:
+            css.iloc[i, k + 2] = "background-color: #ffe08a; color: #000; font-weight: 700"
+        return css
+
+    st.dataframe(dd_text.style.apply(_highlight, axis=None), use_container_width=True, hide_index=True)
     st.caption(
         f"Coeficientes {sym}ᵏy ({'fila 0' if mode == 'forward' else 'última diagonal'}): "
         + ", ".join(f"{sym}{k}y = {c:.6f}" for k, c in enumerate(coefs))
