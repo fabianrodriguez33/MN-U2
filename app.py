@@ -1,5 +1,6 @@
 """Aplicación Streamlit: Sesión 6 (LU Doolittle), Sesión 7 (Jacobi / Gauss-Seidel)
-Sesión 8 (Interpolación de Lagrange) y Sesión 9 (Interpolación de Newton) para Cloud."""
+Sesión 8 (Interpolación de Lagrange), Sesión 9 (Newton, diferencias divididas) y
+Sesión 10 (Newton-Gregory) para Cloud."""
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,6 +14,7 @@ from iterative_solvers import (
     gauss_seidel_solver,
     jacobi_solver,
 )
+from gregory_solver import GregorySolver, UnequalSpacingError
 from lagrange_solver import DuplicateXError, LagrangeSolver
 from lu_solver import LUSolver, SingularMatrixError
 from newton_solver import NewtonSolver
@@ -46,6 +48,11 @@ DEFAULT_XEVAL8 = 6.0
 DEFAULT_X9 = [1.0, 2.0, 4.0, 7.0]
 DEFAULT_Y9 = [45.0, 65.0, 110.0, 220.0]
 DEFAULT_XEVAL9 = 5.0
+
+# --- Caso de prueba predeterminado (Sesión 10: asentamiento de zapata, h = 2) ---
+DEFAULT_X10 = [0.0, 2.0, 4.0, 6.0]
+DEFAULT_Y10 = [0.0, 1.6, 3.5, 6.3]
+DEFAULT_XEVAL10 = 5.0
 
 
 def matrix_to_latex(M, name):
@@ -676,6 +683,152 @@ def render_sesion9():
 
 
 # ============================================================
+# SESIÓN 10 — Interpolación de Newton-Gregory (nodos equidistantes)
+# ============================================================
+
+def init_state_s10(npts):
+    old = st.session_state.get("pts_df10")
+    df = pd.DataFrame({"x": np.zeros(npts), "y": np.zeros(npts)})
+    if old is not None:
+        m = min(npts, len(old))
+        df.iloc[:m] = old.iloc[:m].to_numpy()
+    st.session_state.pts_df10 = df
+    st.session_state.n10 = npts
+
+
+def load_preset_s10():
+    st.session_state.pts_df10 = pd.DataFrame({"x": DEFAULT_X10, "y": DEFAULT_Y10})
+    st.session_state.n10 = len(DEFAULT_X10)
+    st.session_state.x_eval10 = DEFAULT_XEVAL10
+    st.session_state.pts_version10 = st.session_state.get("pts_version10", 0) + 1
+    st.session_state.n_input_s10 = len(DEFAULT_X10)
+    st.session_state.x_eval_input10 = DEFAULT_XEVAL10
+
+
+def render_sesion10():
+    st.title("🏗️ Asentamiento de Zapata — Interpolación de Newton-Gregory")
+    st.markdown(
+        "Para nodos **igualmente espaciados** ($h$ constante) se usan diferencias finitas. "
+        "Progresivo: $P_n(x) = \\sum_{k=0}^{n} \\binom{s}{k}\\Delta^k y_0$ con "
+        "$s = \\frac{x-x_0}{h}$. Regresivo: $P_n(x) = \\sum_{k=0}^{n} \\binom{s+k-1}{k}"
+        "\\nabla^k y_n$ con $s = \\frac{x-x_n}{h}$."
+    )
+
+    if "n10" not in st.session_state:
+        st.session_state.n10 = 4
+        st.session_state.pts_df10 = pd.DataFrame({"x": DEFAULT_X10, "y": DEFAULT_Y10})
+        st.session_state.x_eval10 = DEFAULT_XEVAL10
+
+    with st.sidebar:
+        st.header("⚙️ Configuración (Sesión 10)")
+        if st.button("📌 Cargar Ejemplo Predeterminado (Sesión 10 - Zapata)", use_container_width=True):
+            load_preset_s10()
+
+        npts = st.number_input(
+            "Número de puntos (n+1)", min_value=2, max_value=15,
+            value=st.session_state.n10, step=1, key="n_input_s10",
+        )
+        if npts != st.session_state.n10:
+            init_state_s10(int(npts))
+
+        x_eval = st.number_input(
+            "Valor a evaluar x_eval", value=float(st.session_state.x_eval10),
+            format="%.4f", key="x_eval_input10",
+        )
+        st.session_state.x_eval10 = x_eval
+        mode_label = st.radio("Variante", ["Progresiva (Δ)", "Regresiva (∇)"])
+        mode = "forward" if mode_label.startswith("Progresiva") else "backward"
+
+    st.subheader("1️⃣ Puntos experimentales (xᵢ, yᵢ)")
+    edited = st.data_editor(
+        st.session_state.pts_df10,
+        key=f"pts_editor10_{st.session_state.get('pts_version10', 0)}",
+        num_rows="fixed", use_container_width=True,
+        column_config={
+            "x": st.column_config.NumberColumn("Tiempo xᵢ (h)", format="%.4f"),
+            "y": st.column_config.NumberColumn("Asentamiento yᵢ (mm)", format="%.4f"),
+        },
+    )
+    st.session_state.pts_df10 = edited
+
+    if edited.isna().any().any():
+        st.error("La tabla contiene celdas vacías: complete todas las coordenadas.")
+        return
+
+    try:
+        xs, ys, h = GregorySolver.validate(
+            edited["x"].to_numpy(dtype=float), edited["y"].to_numpy(dtype=float)
+        )
+    except (DuplicateXError, UnequalSpacingError, ValueError) as e:
+        st.error(str(e))
+        return
+
+    n = len(xs)
+    table = GregorySolver.difference_table(ys)
+    coefs = (GregorySolver.forward_coefficients(table) if mode == "forward"
+             else GregorySolver.backward_coefficients(table))
+    p_eval = GregorySolver.evaluate(x_eval, xs, coefs, h, mode)
+    _, poly_expr, sym_x = GregorySolver.get_symbolic_expressions(xs, coefs, h, mode)
+    sym = "Δ" if mode == "forward" else "∇"
+    anchor = xs[0] if mode == "forward" else xs[-1]
+    s_eval = (x_eval - anchor) / h
+
+    st.info(f"Paso h = {h:g}; s = (x_eval − {'x₀' if mode == 'forward' else 'xₙ'})/h = {s_eval:.6f}")
+
+    st.subheader("2️⃣ Tabla de diferencias finitas")
+    names = ["yᵢ"] + [f"{sym}{'' if k == 1 else k}y" for k in range(1, n)]
+    dd = pd.DataFrame(table, columns=names)
+    dd.insert(0, "xᵢ", xs)
+    dd.insert(0, "i", [str(i) for i in range(n)])
+    dd_text = dd.apply(lambda col: col if col.name == "i" else col.map(
+        lambda v: "--" if pd.isna(v) else f"{v:.4f}"))
+    st.dataframe(dd_text, use_container_width=True, hide_index=True)
+    st.caption(
+        f"Coeficientes {sym}ᵏy ({'fila 0' if mode == 'forward' else 'última diagonal'}): "
+        + ", ".join(f"{sym}{k}y = {c:.6f}" for k, c in enumerate(coefs))
+    )
+
+    st.subheader("3️⃣ Polinomio interpolante")
+    st.markdown("**Forma de Newton-Gregory**")
+    st.latex(GregorySolver.newton_gregory_latex(coefs, mode))
+    st.markdown("**Forma simplificada (canónica)**")
+    st.latex(GregorySolver.canonical_latex(poly_expr, sym_x))
+
+    st.subheader("4️⃣ Valor interpolado")
+    st.metric(f"P_{n - 1}({x_eval:g})", f"{p_eval:.6f} mm")
+    if x_eval < xs.min() or x_eval > xs.max():
+        st.warning("x_eval está fuera del intervalo de los datos: se trata de extrapolación.")
+
+    st.subheader("5️⃣ Verificación en los puntos experimentales")
+    p_nodes = GregorySolver.evaluate(xs, xs, coefs, h, mode)
+    st.dataframe(
+        pd.DataFrame({
+            "x_i": xs, "y_i medida (mm)": ys,
+            "P(x_i) evaluado (mm)": p_nodes, "Error |y_i - P(x_i)|": np.abs(ys - p_nodes),
+        }).style.format("{:.4f}"),
+        use_container_width=True, hide_index=True,
+    )
+
+    st.subheader("6️⃣ Gráfico de la interpolación")
+    grid = np.linspace(xs.min() - h / 2, xs.max() + h / 2, 200)
+    curve = GregorySolver.evaluate(grid, xs, coefs, h, mode)
+
+    fig, ax = plt.subplots()
+    ax.plot(grid, curve, label=f"$P_{{{n - 1}}}(x)$")
+    ax.scatter(xs, ys, color="red", zorder=3, s=60, label="Puntos experimentales")
+    ax.plot([x_eval, x_eval], [min(curve.min(), 0), p_eval], "k--", linewidth=1)
+    ax.plot([grid[0], x_eval], [p_eval, p_eval], "k--", linewidth=1)
+    ax.scatter([x_eval], [p_eval], color="green", marker="*", s=200, zorder=4,
+               label=f"Interpolado ({x_eval:g}, {p_eval:.4f})")
+    ax.set_xlabel("Tiempo x (h)")
+    ax.set_ylabel("Asentamiento y (mm)")
+    ax.set_title(f"Interpolación de Newton-Gregory ({'progresiva' if mode == 'forward' else 'regresiva'})")
+    ax.legend()
+    ax.grid(True, linestyle="--", alpha=0.5)
+    st.pyplot(fig)
+
+
+# ============================================================
 # NAVEGACIÓN PRINCIPAL
 # ============================================================
 
@@ -687,6 +840,7 @@ modulo = st.sidebar.radio(
         "Sesión 7: Métodos Iterativos (Jacobi y Gauss-Seidel)",
         "Sesión 8: Interpolación Polinómica de Lagrange",
         "Sesión 9: Interpolación Polinómica de Newton",
+        "Sesión 10: Interpolación de Newton-Gregory",
     ],
 )
 st.sidebar.divider()
@@ -697,5 +851,7 @@ elif modulo.startswith("Sesión 7"):
     render_sesion7()
 elif modulo.startswith("Sesión 8"):
     render_sesion8()
-else:
+elif modulo.startswith("Sesión 9"):
     render_sesion9()
+else:
+    render_sesion10()

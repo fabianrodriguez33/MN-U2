@@ -5,6 +5,7 @@ import sys
 import numpy as np
 
 from iterative_solvers import check_diagonal_dominance, check_sassenfeld, gauss_seidel_solver, jacobi_solver
+from gregory_solver import GregorySolver
 from lagrange_solver import LagrangeSolver
 from newton_solver import NewtonSolver
 
@@ -68,27 +69,22 @@ def ej4_newton_dd():
 
 
 def ej5_newton_gregory():
-    # El proyecto no tiene Newton-Gregory: se construyen las diferencias finitas aquí.
     t = np.array([0, 2, 4, 6], dtype=float)
     y = np.array([0.0, 1.6, 3.5, 6.3])
-    h = 2.0
-    d = [y[0]]
-    cur = y
-    for _ in range(3):
-        cur = np.diff(cur)
-        d.append(cur[0])
-    assert np.allclose(d, [0.0, 1.6, 0.3, 0.6]), d
-
-    def p(tv):
-        s = (tv - t[0]) / h
-        return d[0] + s * d[1] + s * (s - 1) / 2 * d[2] + s * (s - 1) * (s - 2) / 6 * d[3]
-
-    assert abs(p(5.0) - 4.75) < 1e-12
-    # Nota: ins11.md da 0.875t en la forma expandida, pero la expansión correcta es 0.825t
-    # (0.8 - 0.075 + 0.1); con 0.875 P(5) sería 5.0, no 4.75.
+    t, y, h = GregorySolver.validate(t, y)
+    assert h == 2.0
+    table = GregorySolver.difference_table(y)
+    fwd = GregorySolver.forward_coefficients(table)
+    assert np.allclose(fwd, [0.0, 1.6, 0.3, 0.6]), fwd
+    bwd = GregorySolver.backward_coefficients(table)
+    assert np.allclose(bwd, [6.3, 2.8, 0.9, 0.6]), bwd
+    assert abs(GregorySolver.evaluate(5.0, t, fwd, h, "forward") - 4.75) < 1e-12
+    assert abs(GregorySolver.evaluate(5.0, t, bwd, h, "backward") - 4.75) < 1e-12
+    # Nota: ins11.md daba 0.875t en la forma expandida; la expansión correcta es 0.825t.
     for tv in (0.0, 1.0, 3.7, 5.0):
-        assert abs(p(tv) - (0.0125 * tv**3 - 0.0375 * tv**2 + 0.825 * tv)) < 1e-12
-    # Coincide con la forma de Newton por diferencias divididas del proyecto
+        ref = 0.0125 * tv**3 - 0.0375 * tv**2 + 0.825 * tv
+        assert abs(GregorySolver.evaluate(tv, t, fwd, h, "forward") - ref) < 1e-12
+    # Coincide con Newton por diferencias divididas
     c = NewtonSolver.coefficients(NewtonSolver.compute_divided_differences(t, y))
     assert abs(NewtonSolver.evaluate(5.0, t, c) - 4.75) < 1e-12
 
